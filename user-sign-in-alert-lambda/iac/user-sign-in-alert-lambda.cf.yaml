@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  DeploymentId:
+    Description: The deployment ID of the stack being deployed.
+    Type: String
+
+  ArtefactBucketName:
+    Description: The s3 bucket for the lambda code and lambda layers.
+    Type: String
+
+Resources:
+  UserSignInAlertingLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${DeploymentId}-UserSignInAlertingLambda"
+      Code: 
+          S3Bucket: !Ref ArtefactBucketName
+          S3Key: "user-sign-in-lambda-code.zip"
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.11
+      Role: !GetAtt UserSignInAlertingLambdaRole.Arn
+      Layers: 
+        - !Ref UserSignInAlertingLambdaLayer
+      Timeout: 30
+      MemorySize: 128
+
+  UserSignInAlertingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+        - PolicyName: S3LambdaCodeRetrieval
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${DeploymentId}-lambda-artefacts-bucket"
+
+  UserSignInAlertingLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+        - python3.11
+      Content: 
+        S3Bucket: !Ref ArtefactBucketName
+        S3Key: "user-sign-in-lambda-layer.zip"
+
+Outputs:
+  UserSignInAlertingLambdaArn:
+    Value: !GetAtt UserSignInAlertingLambda.Arn
+    Description: The ARN of the Lambda function

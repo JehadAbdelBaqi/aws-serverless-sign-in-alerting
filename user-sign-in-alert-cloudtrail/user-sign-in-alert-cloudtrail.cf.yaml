@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  DeploymentId:
+    Description: The deployment ID of the stack being deployed.
+    Type: String
+
+  AccountId:
+    Description: The account ID where the stack is being deployed.
+    Type: String
+
+  TrailName:
+    Description: The name of the trail where the Management Events will go.
+    Type: String
+    Default: "ManagementEventsTrail"
+
+Resources:
+  ManagementEventsTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: !Sub "${DeploymentId}-${TrailName}"
+      S3BucketName: !Ref ManagementEventsTrailS3Bucket
+      CloudWatchLogsLogGroupArn: !GetAtt ManagementEventsTrailLogGroup.Arn
+      CloudWatchLogsRoleArn: !GetAtt ManagementEventsTrailLogGroupRole.Arn
+      IsLogging: True
+      EnableLogFileValidation: True
+      IncludeGlobalServiceEvents: True
+      IsOrganizationTrail: False
+
+  ManagementEventsTrailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "${DeploymentId}-ManagementEventsTrailLogGroup"
+
+  ManagementEventsTrailLogGroupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${DeploymentId}-ManagementEventsTrailLogGroupRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${DeploymentId}-AWSCloudTrailCreateLogStreamAndPutLogEvents"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: ManagementEventLogGroupPermissions
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ManagementEventsTrailLogGroup.Arn
+
+  ManagementEventsTrailS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${DeploymentId}-management-events-trail-s3-bucket"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  ManagementEventsTrailS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ManagementEventsTrailS3Bucket
+      PolicyDocument: 
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !Join
+              - ""
+              - - "arn:aws:s3:::"
+                - !Ref ManagementEventsTrailS3Bucket
+            # Condition:
+            #   StringEquals:
+            #     aws:SourceArn: !Join
+            #       - ""
+            #       - - "arn:aws:cloudtrail:"
+            #         - !Sub "${AWSRegion}:${AccountId}:trail/"
+            #         - !Ref ManagementEventsTrail
+          - Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Join
+              - ""
+              - - "arn:aws:s3:::"
+                - !Ref ManagementEventsTrailS3Bucket
+                - !Sub "/AWSLogs/${AccountId}/*"
+            Condition:
+              StringEquals:
+                # aws:SourceArn: !Join
+                #   - ""
+                #   - - "arn:aws:cloudtrail:"
+                #     - !Sub "${AWSRegion}:${AccountId}:trail/"
+                #     - !Ref ManagementEventsTrail
+                s3:x-amz-acl: bucket-owner-full-control

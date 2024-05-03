@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  DeploymentId:
+    Description: The deployment ID of the stack being deployed.
+    Type: String
+
+  UserSignInLambdaFunctionArn:
+    Description: The Lambda function ARN which the EventBridge Rule will trigger.
+    Type: String
+
+Resources:
+  EventBridgeLoginRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      EventPattern:
+        source:
+          - aws.signin
+          - aws.sso
+        detail:
+          eventSource:
+            - signin.amazonaws.com
+            - sso.amazonaws.com
+          eventName:
+            - ConsoleLogin
+            - CreateToken
+      State: ENABLED
+      Targets:
+        - Id: !Sub "${DeploymentID}-user-sign-in-lambda-function"
+          Arn: !Ref UserSignInLambdaFunctionArn
+          InputTransformer:
+            InputPathsMap:
+              account: $.account
+              eventID: $.detail.eventID
+              fullEvent: $.detail
+              ipAddress: $.detail.sourceIPAddress
+              loginStatus: $.detail.responseElements.ConsoleLogin
+              userAgent: $.detail.userAgent
+            InputTemplate: |-
+              {
+                "message": {
+                  "userAgent": "<userAgent>",
+                  "ipAddress": "<ipAddress>",
+                  "loginStatus": "<loginStatus>",
+                  "account": "<account>",
+                  "eventID": "<eventID>"
+                },
+                "fullEvent": <fullEvent>
+              }
+        - Id: !Sub "${DeploymentID}user-sign-in-event-bridge-log-group"
+          Arn: !GetAtt EventBridgeLoginLogGroup.Arn
+  
+  EventBridgeLoginLogGroup:
+    Type: AWS::Logs::LogGroup
+  
+  MyEventBridgeRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventBridgeLogPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt EventBridgeLoginLogGroup.Arn
+
+Outputs:
+  EventBridgeLoginRuleArn:
+    Value: !GetAtt EventBridgeLoginRule.Arn
+    Description: The ARN of the EventBridge Rule.

@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  AccountId:
+    Description: The account ID where the stack is being deployed.
+    Type: String
+
+  ArtefactBucketName:
+    Description: The s3 bucket for the lambda code and lambda layers.
+    Type: String
+    Default: "user-sign-in-lambda-artefacts-bucket"
+
+  DeploymentId:
+    Description: The deployment ID of the stack being deployed.
+    Type: String
+
+  StackTemplateS3BucketName:
+    Description: The s3 bucket for the CloudFormation templates to be uploaded and read from.
+    Type: String
+    Default: "user-sign-in-template-bucket"
+
+Resources:
+  UserSignInAlertCloudTrailStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${DeploymentId}-${StackTemplateS3BucketName}/user-sign-in-alert-cloudtrail/user-sign-in-alert-cloudtrail.cf.yaml"
+      Parameters:
+        DeploymentId: !Ref DeploymentId
+        AccountId: !Ref AccountId
+
+  UserSignInAlertLambdaStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${DeploymentId}-${StackTemplateS3BucketName}/user-sign-in-alert-lambda/iac/user-sign-in-alert-lambda.cf.yaml"
+      Parameters:
+        DeploymentId: !Ref DeploymentId
+        ArtefactBucketName: !Sub "${DeploymentId}-${ArtefactBucketName}"
+
+  UserSignInAlertEventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${DeploymentId}-${StackTemplateS3BucketName}/user-sign-in-alert-eventbridge/user-sign-in-alert-eventbridge.cf.yaml"
+      Parameters:
+        DeploymentId: !Ref DeploymentId
+        UserSignInLambdaFunctionArn: !GetAtt UserSignInAlertLambdaStack.Outputs.UserSignInAlertingLambdaArn
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UserSignInAlertLambdaStack.Outputs.UserSignInAlertingLambdaArn
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt UserSignInAlertEventBridgeStack.Outputs.EventBridgeLoginRuleArn
+  
